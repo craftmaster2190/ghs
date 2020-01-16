@@ -2,7 +2,9 @@ package controllers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"sort"
 	"sync"
@@ -22,15 +24,20 @@ func GetStats(config models.StatsConfig) {
 
 	client := external.GetClient(ctx, config.ApiToken)
 
-	repos := external.GetTeamRepos(config.Org, config.Team, ctx, client)
+	var repos []*github.Repository
+	if len(config.Team) > 0 {
+		repos = external.GetTeamRepos(config.Org, config.Team, ctx, client)
+	} else {
+		repos = external.GetRepos(config.Org, config.Repos, ctx, client)
+	}
 
 	prs := getPullRequests(repos, config, ctx, client)
 
-	filteredPrs := filterPullRequests(prs, config)
+	// filteredPrs := filterPullRequests(prs, config)
 
-	fmt.Printf("Number of PRs opened in the interval: %d\n", aurora.Blue(len(filteredPrs)))
+	// fmt.Printf("Number of PRs opened in the interval: %d\n", aurora.Blue(len(filteredPrs)))
 
-	pullRequests := getDetails(filteredPrs, config.Org, ctx, client)
+	pullRequests := getDetails(prs, config.Org, ctx, client)
 
 	fmt.Printf("Calculate statistics\n")
 
@@ -98,16 +105,54 @@ func getDetails(lastWeekPrs []*github.PullRequest, org string, ctx context.Conte
 	client *github.Client) []models.PullRequest {
 
 	fmt.Println("Getting pull requests details.")
+	defer func() {
+		if recovery := recover(); recovery != nil {
+			fmt.Println("Unable to complete fetching all Pull Requests.", recovery)
+		}
+	}()
 
 	pullRequests := make([]models.PullRequest, len(lastWeekPrs))
 	var waitGroup sync.WaitGroup
 	waitGroup.Add(len(lastWeekPrs))
+	throttle := make(chan int, 8)
+	defer close(throttle)
 
 	for i, pr := range lastWeekPrs {
 		go func(i int, pr *github.PullRequest) {
 			defer waitGroup.Done()
-			pullRequests[i] = getPullRequestDetails(org, pr, ctx, client)
+			cacheDirectory := fmt.Sprintf("cache/pr/%s", org)
+			cacheFile := fmt.Sprintf("%s/%d", cacheDirectory, pr.GetNumber())
+			loadedFromCache := false
+			// fmt.Printf(" - File: %s PR: %s %s\n", cacheFile, util.TimeToString(pr.MergedAt), util.PrintStringPointer(pr.State))
+			if util.FileExists(cacheFile) && "closed" == pr.GetState() {
+				file, readError := ioutil.ReadFile(cacheFile)
+				if readError == nil {
+					var prFromJson models.PullRequest
+					jsonError := json.Unmarshal(file, &prFromJson)
+					if jsonError == nil {
+						pullRequests[i] = prFromJson
+						loadedFromCache = true
+					} else {
+						fmt.Printf(" - File: %s jsonError! %+v\n", cacheFile, jsonError)
+					}
+				} else {
+					fmt.Printf(" - File: %s readError! %+v\n", cacheFile, readError)
+				}
+			}
+
+			if !loadedFromCache {
+				pullRequests[i] = getPullRequestDetails(org, pr, ctx, client)
+				bytes, jsonError := json.MarshalIndent(pullRequests[i], "", " ")
+				util.Check(jsonError)
+				util.Check(os.MkdirAll(cacheDirectory, os.ModePerm))
+				util.Check(ioutil.WriteFile(cacheFile, bytes, 0644))
+				fmt.Printf("Loaded %s %s PR#%d (%s) details from github\n",
+					org, pr.GetBase().GetRepo().GetFullName(), pr.GetNumber(), pr.GetState())
+			}
+
+			_ = <-throttle
 		}(i, pr)
+		throttle <- pr.GetNumber()
 	}
 	waitGroup.Wait()
 	fmt.Println("Done")

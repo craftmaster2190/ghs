@@ -1,8 +1,8 @@
 package cli
 
 import (
-	"os"
 	"github.com/urfave/cli"
+	"os"
 )
 
 func Start() {
@@ -22,6 +22,11 @@ func Start() {
 			Name:  "team",
 			Value: "",
 			Usage: "Team name",
+		},
+		cli.StringSliceFlag{
+			Name:  "repo",
+			Value: nil,
+			Usage: "Repository names (May be repeated)",
 		},
 		cli.IntFlag{
 			Name:  "start, s",

@@ -1,0 +1,12 @@
+User
+Num of PRs Merged
+Num of PRs Closed
+Num of Lines Added, Changed, Deleted
+Time from Approved PR to Merge (merge time minus approve time)
+Time to Reply to Comments (comment[other] time minus comment[self] time on same PR)
+Num of Comments
+Num of Approvals
+Time from Open to Comment (on others, open time until comment[self] time)
+Time from Open to Approve (on others, open time until approve time)
+
+

@@ -5,6 +5,7 @@ import "errors"
 type StatsConfig struct {
 	Org      string
 	Team     string
+	Repos    []string
 	ApiToken string
 	Start    int
 	End      int
@@ -24,8 +25,8 @@ func (c StatsConfig) Validate() error {
 	if len(c.Org) == 0 {
 		return errors.New("organization is missing")
 	}
-	if len(c.Team) == 0 {
-		return errors.New("team is missing")
+	if len(c.Team) == 0 && (c.Repos == nil || len(c.Repos) == 0) {
+		return errors.New("team or repo is missing")
 	}
 	if c.Start >= 0 {
 		return errors.New("start is invalid")
